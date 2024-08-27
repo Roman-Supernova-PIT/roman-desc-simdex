@@ -2,7 +2,7 @@
 #
 #    docker build -t <imagename> .
 #
-# ( rknop on nersc : imagename = registry.nersc.gov/m4385/raknop/roman-desc-simdex-postgres )
+# ( rknop on nersc : imagename = registry.nersc.gov/m4385/raknop/postgres_q3c )
 #
 # You then have to run it with
 #
@@ -13,7 +13,7 @@
 #
 
 FROM rknop/devuan-daedalus-rknop
-MAINTAINER Rob Knop <raknop@lbl.gov>
+LABEL maintainer="Rob Knop <raknop@lbl.gov>"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

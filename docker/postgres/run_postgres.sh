@@ -6,8 +6,8 @@ if [ ! -f $POSTGRES_DATA_DIR/PG_VERSION ]; then
     /usr/lib/postgresql/15/bin/initdb -U postgres --pwfile=$HOME/pwfile $POSTGRES_DATA_DIR
     rm $HOME/pwfile
     /usr/lib/postgresql/15/bin/pg_ctl -D $POSTGRES_DATA_DIR start
-    psql --command "CREATE DATABASE seechange OWNER postgres"
-    psql --command "CREATE EXTENSION q3c" seechange
+    psql --command "CREATE DATABASE $POSTGRES_DBNAME OWNER postgres"
+    psql --command "CREATE EXTENSION q3c" $POSTGRES_DBNAME
     /usr/lib/postgresql/15/bin/pg_ctl -D $POSTGRES_DATA_DIR stop
 fi
 exec /usr/lib/postgresql/15/bin/postgres -c config_file=/etc/postgresql/15/main/postgresql.conf

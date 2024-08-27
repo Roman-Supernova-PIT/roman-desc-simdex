@@ -1,3 +1,8 @@
+# Build with
+#   docker build -t <imagename> .
+#
+# where for Rob on spin, <imagename> = registry.nersc.gov/m4385/raknop/roman-desc-simdex-server
+
 FROM rknop/devuan-daedalus-rknop AS base
 LABEL maintainer="Rob Knop <raknop@lbl.gov>"
 
@@ -38,7 +43,8 @@ RUN source /venv/bin/activate && \
        psycopg2 \
        python-dateutil \
        pytz \
-       requests
+       requests \
+       astropy
 
 # ======================================================================
 FROM base AS webserver
@@ -48,5 +54,4 @@ ENV PATH=/venv/bin:$PATH
 
 RUN mkdir /sessions
 
-ENTRYPOINT [ "gunicorn", "--certfile", "/usr/src/cert.pem", "--keyfile", "/usr/src/key.pem", \
-           "-w", "1", "--threads", "10", "-b", "0.0.0.0:8080", "--timeout", "0", "server:app" ]
+ENTRYPOINT [ "gunicorn", "-w", "1", "--threads", "10", "-b", "0.0.0.0:8080", "--timeout", "0", "server:app" ]
