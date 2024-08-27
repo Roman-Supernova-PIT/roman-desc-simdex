@@ -1,6 +1,8 @@
 import sys
 import os
 import re
+import logging
+from contextlib import contextmanager
 
 import psycopg2
 
@@ -53,7 +55,7 @@ class BaseView(flask.views.View):
                 parsedval = None
 
                 # Look for list or tuple
-                match = tuplistre.search( val ):
+                match = tuplistre.search( val )
                 if ( match is None ) and ( match.group(1) == match.group(3) ):
                     istuple = ( match.group(1) == '(' )
                     items = [ i.strip for i in match.group(2).split(",") ]
@@ -210,24 +212,7 @@ app.add_url_rule( "/",
                   strict_slashes=False )
 
 rules = {
-    "/campaigns": Campaigns,
-    "/collections/<string:campaign>": Collections,
-    "/surveyinfo/<string:campaign>/<string:collection>": SurveyInfo,
-    "/instrinfo/<string:campaign>/<string:collection>": InstrInfo,
-    "/analysisinfo/<string:campaign>/<string:collection>": AnalysisInfo,
-    "/tiers/<string:campaign>/<string:collection>": Tiers,
-    "/surveys/<string:campaign>/<string:collection>": Surveys,
-    "/summarydata/<string:campaign>/<string:collection>": SummaryData,
-    "/snzhist/<string:campaign>/<string:collection>/<string:sim>": SNZHist,
-    "/snzhist/<string:campaign>/<string:collection>/<string:sim>/<path:argstr>": SNZHist,
-    "/spechist/<string:which>/<string:campaign>/<string:collection>/<string:sim>/<int:strategy>": SpecHist,
-    ( "/spechist/<string:which>/<string:campaign>/<string:collection>/<string:sim>"
-      "/<int:strategy>/<path:argstr>" ): SpecHist,
-    "/randomltcv/<string:campaign>/<string:collection>/<string:sim>/<int:gentype>/<string:z>/<string:dz>": RandomLTCV,
-    ( "/randomltcv/<string:campaign>/<string:collection>/<string:sim>"
-      "/<int:gentype>/<string:z>/<string:dz>/<string:tier>" ): RandomLTCV,
-    ( "/randomspectrum/<string:campaign>/<string:collection>/<string:sim>/<int:gentype>/<string:z>/<string:dz>"
-      "/<string:t>/<string:dt>/<path:argstr>" ): RandomSpectrum,
+    "/findimages/<path:argstr>": FindImages,
 }
 
 # Dysfunctionality alert: flask routing doesn't interpret "0" or "5" as
