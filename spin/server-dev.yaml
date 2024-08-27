@@ -1,0 +1,146 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
+  name: webserver
+  namespace: romansnpit-roman-desc-simdex
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
+    spec:
+      containers:
+      - image: registry.nersc.gov/m4385/raknop/roman-desc-simdex-server
+        imagePullPolicy: Always
+        name: decat-upload
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 95089
+        stdin: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        tty: true
+        volumeMounts:
+        - mountPath: /Roman+DESC
+          name: roman_desc
+          readOnly: true
+        - mountPath: /RomanTDS
+          name: roman_tds
+          readOnly: true
+        # Comment this out to use the code baked into the Dockerfile
+        - mountPath: /code
+          name: server_code
+      dnsConfig: {}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 101320
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: registry-nersc
+      volumes:
+      - hostPath:
+          path: /global/cfs/cdirs/lsst/www/DESC_TD_PUBLIC/Roman+DESC
+          type: Directory
+        name: roman_desc
+      - hostPath:
+          path: /global/cfs/cdirs/lsst/production/roman-desc-sims/Roman_data/RomanTDS
+          type: Directory
+        name: roman_tds
+      - hostPath:
+          path: /global/cfs/cdirs/m4385/roman-desc-simdex/install-dev
+          type: Directory
+        name: server_code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webserver
+  namespace: romansnpit-roman-desc-simdex
+spec:
+  clusterIP: None
+  clusterIPs:
+  - None
+  ports:
+  - name: default
+    port: 42
+    protocol: TCP
+    targetPort: 42
+  selector:
+    workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webserver-ingress
+  namespace: romansnpit-roman-desc-simdex
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: webserver
+  namespace: romansnpit-roman-desc-simdex
+spec:
+  rules:
+  - host: webserver.romansnpit-roman-desc-simdex.development.svc.spin.nersc.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: webserver-ingress
+            port:
+              number: 8080
+        pathType: ImplementationSpecific
+  # - host: roman-snpit-webserver-dev.lbl.gov
+  #   http:
+  #     paths:
+  #     - backend:
+  #         service:
+  #           name: webserver-ingress
+  #           port:
+  #             number: 8080
+  #       pathType: ImplementationSpecific
+  # tls:
+  # - hosts:
+  #   - roman-desc-simdex-dev.lbl.gov
+  #   secretName: webserver-cert
+---
