@@ -5,15 +5,14 @@ CREATE TABLE pointing(
    filter  text,
    exptime real,
    mjd     double precision,
-   pa       double precision
+   pa      double precision
 );
-CREATE INDEX ix_q3c_pointing_radec ON sca(q3c_ang2ipix(ra, dec));
-CREATE INDEX ix_pointing_filter ON sca(filter);
-CREATE INDEX ix_pointing_exptime ON sca(exptime);
-CREATE INDEX ix_pointing_mjd ON sca(mjd);
+CREATE INDEX ix_q3c_pointing_radec ON pointing(q3c_ang2ipix(ra, dec));
+CREATE INDEX ix_pointing_filter ON pointing(filter);
+CREATE INDEX ix_pointing_exptime ON pointing(exptime);
+CREATE INDEX ix_pointing_mjd ON pointing(mjd);
 
 CREATE TABLE sca(
-   _pk      serial primary key,
    pointing int,
    scanum   int,
    ra       double precision,
@@ -29,8 +28,10 @@ CREATE TABLE sca(
    minra    real,
    maxra    real,
    mindec   real,
-   maxdec   real.
+   maxdec   real,
+   PRIMARY KEY( pointing, scanum )
 );
+ALTER TABLE sca ADD CONSTRAINT fk_sca_pointing FOREIGN KEY (pointing) REFERENCES pointing(num);
 CREATE INDEX ix_sca_pointing ON sca(pointing);
 CREATE INDEX ix_q3c_sca_radec ON sca(q3c_ang2ipix(ra, dec));
 CREATE INDEX ix_sca_minra ON sca(minra);
@@ -58,7 +59,7 @@ CREATE TABLE transient(
    host_dec               double precision,
    host_mag_g             real,
    host_mag_i             real,
-   hsot_mag_f             real,
+   host_mag_f             real,
    host_sn_sep            real,
    peak_mjd               real,
    peak_mag_g             real,

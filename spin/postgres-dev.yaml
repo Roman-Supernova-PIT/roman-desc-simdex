@@ -33,12 +33,14 @@ spec:
       - env:
         - name: POSTGRES_DATA_DIR
           value: /var/lib/postgresql/data
+        - name: POSTGRES_DBNAME
+          value: roman_desc_sims
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: postgres-secrets
               key: pgpass
-        image: registry.nersc.gov/m4385/raknop/roman-desc-simdex-postgres
+        image: registry.nersc.gov/m4385/raknop/postgres_q3c
         imagePullPolicy: Always
         name: postgres
         resources: {}
@@ -86,7 +88,7 @@ spec:
       volumes:
       - name: postgres
         persistentVolumeClaim:
-          claimName: postgres-rknop-dev-20240502
+          claimName: postgres-rknop-dev-20240827
       - emptyDir:
           medium: Memory
           sizeLimit: 128Gi

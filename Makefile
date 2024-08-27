@@ -1,6 +1,6 @@
 INSTALLDIR = test_install
 
-toinstall = server.py templates/base.html templates/roman_desc_simdex.html
+toinstall = server.py import_images.py templates/base.html templates/roman_desc_simdex.html
 
 
 default :

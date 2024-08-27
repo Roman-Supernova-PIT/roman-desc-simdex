@@ -24,9 +24,23 @@ spec:
         workload.user.cattle.io/workloadselector: deployment-romansnpit-roman-desc-simdex-webserver
     spec:
       containers:
-      - image: registry.nersc.gov/m4385/raknop/roman-desc-simdex-server
+      - env:
+        - name: PG_DB
+          value: roman_desc_sims
+        - name: PG_USER
+          value: postgres
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: pgpass
+        - name: PG_HOST
+          value: postgres
+        - name: PG_PORT
+          value: "5432"
+        image: registry.nersc.gov/m4385/raknop/roman-desc-simdex-server
         imagePullPolicy: Always
-        name: decat-upload
+        name: webserver
         resources: {}
         securityContext:
           allowPrivilegeEscalation: false
@@ -45,14 +59,14 @@ spec:
         tty: true
         volumeMounts:
         - mountPath: /Roman+DESC
-          name: roman_desc
+          name: roman-desc
           readOnly: true
         - mountPath: /RomanTDS
-          name: roman_tds
+          name: roman-tds
           readOnly: true
         # Comment this out to use the code baked into the Dockerfile
-        - mountPath: /code
-          name: server_code
+        - mountPath: /flask
+          name: server-code
       dnsConfig: {}
       dnsPolicy: ClusterFirst
       restartPolicy: Always
@@ -66,15 +80,16 @@ spec:
       - hostPath:
           path: /global/cfs/cdirs/lsst/www/DESC_TD_PUBLIC/Roman+DESC
           type: Directory
-        name: roman_desc
+        name: roman-desc
       - hostPath:
-          path: /global/cfs/cdirs/lsst/production/roman-desc-sims/Roman_data/RomanTDS
+          # path: /global/cfs/cdirs/lsst/production/roman-desc-sims/Roman_data/RomanTDS
+          path: /global/cfs/cdirs/lsst/shared/external/roman-desc-sims/Roman_data/RomanTDS
           type: Directory
-        name: roman_tds
+        name: roman-tds
       - hostPath:
-          path: /global/cfs/cdirs/m4385/roman-desc-simdex/install-dev
+          path: /global/cfs/cdirs/m4385/spin/roman-desc-simdex/install-dev
           type: Directory
-        name: server_code
+        name: server-code
 ---
 apiVersion: v1
 kind: Service

@@ -1,7 +1,9 @@
 import sys
 import os
 import re
+import io
 import logging
+import traceback
 from contextlib import contextmanager
 
 import psycopg2
@@ -34,6 +36,16 @@ class BaseView(flask.views.View):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
 
+    def dispatch_request( self, *args, **kwargs ):
+        try:
+            return self.do_the_things( *args, **kwargs )
+        except Exception as ex:
+            sio = io.StringIO()
+            traceback.print_exc( file=sio )
+            app.logger.error( sio.getvalue() )
+            return f"Exception in {self.__class__.__name__}: {str(ex)}", 500
+        
+
     kwvalre = re.compile( r'^(?P<k>[^=]+)=(?P<v>.*)$' )
     tuplistre = re.compile( r'^ *([\(\[])(.*)([\]\)]) *$' )
     intre = re.compile( r'^[\+\-]?[0-9]+$' )
@@ -43,6 +55,8 @@ class BaseView(flask.views.View):
     def argstr_to_args( self, argstr ):
         """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
 
+        app.logger.debug( f"Parsing argstr \"{argstr}\"" )
+        
         kwargs = {}
         if argstr is not None:
             for arg in argstr.split("/"):
@@ -55,26 +69,38 @@ class BaseView(flask.views.View):
                 parsedval = None
 
                 # Look for list or tuple
-                match = tuplistre.search( val )
-                if ( match is None ) and ( match.group(1) == match.group(3) ):
+                match = self.tuplistre.search( val )
+                if ( ( match is not None ) and
+                     ( ( ( match.group(1) == '(' ) and ( match.group(3) == ')' ) )
+                       or
+                       ( ( match.group(1) == '[' ) and ( match.group(3) == ']' ) )
+                      )
+                    ):
                     istuple = ( match.group(1) == '(' )
-                    items = [ i.strip for i in match.group(2).split(",") ]
+                    app.logger.debug( f"{val} is a {'tuple' if istuple else 'list'}" )
+                    items = [ i.strip() for i in match.group(2).split(",") ]
+                    app.logger.debug( f"Parsed {match.group(2)} to {items}" )
                     parsedval = []
                     for i in items:
-                        if intre.search( i ):
+                        if self.intre.search( i ):
                             parsedval.append( int(i) )
-                        elif floatre.search( i ):
+                            app.logger.debug( f"Parsed {i} to integer" )
+                        elif self.floatre.search( i ):
                             parsedval.append( float(i) )
+                            app.logger.debug( f"Parsed {i} to float" )
                         else:
                             parsedval.append( i )
+                            app.logger.debug( f"Parsed {i} to string" )
                     if istuple:
                         parsedval = tuple(parsedval )
+                    app.logger.debug( f"parsedval={parsedval}" )
 
                 else:
+                    app.logger.debug( f"{val} is a scalar" )
                     # Look for int, then float
-                    if intre.search( val ):
+                    if self.intre.search( val ):
                         parsedval = int( val )
-                    elif floatre.search( val ):
+                    elif self.floatre.search( val ):
                         parsedval = float( val )
                     else:
                         parsedval = val
@@ -82,7 +108,9 @@ class BaseView(flask.views.View):
                 if parsedval is None:
                     app.logger.error( f"error parsing value \"{val}\"; this should never happen!" )
                     return f"error parsing \"{val}\"; this should never happen!", 500
-                    
+
+                app.logger.debug( f"keyword {kw} parsed to {parsedval} (type {type(parsedval)})" )
+                
                 kwargs[ kw ] = parsedval
                 
         if flask.request.is_json:
@@ -110,10 +138,12 @@ class BaseView(flask.views.View):
         
         for kw, val in data.items():
             if kw == 'containing':
-                if ( ( not isinstance(val, tuple) ) or ( not isinstance(val, list) ) or ( len(val) != 2 )
-                     or ( not ( isinstance(val[0], float) or isinstance(val[0], int ) ) )
-                     or ( not ( isinstance(val[1], float) or isinstance(val[1], int ) ) ) ):
-                    app.logger.error( f"Invalid containing: {val} (type {type(val)}" )
+                app.logger.debug( f"Gonna check if {val} is a tuple or list of 2 ints/floats" )
+                if ( ( not ( isinstance(val, tuple) or isinstance(val, list) ) ) or ( len(val) != 2 )
+                     or ( not ( isinstance(val[0], float) or isinstance(val[0], int) ) )
+                     or ( not ( isinstance(val[1], float) or isinstance(val[1], int) ) )
+                    ):
+                    app.logger.error( f"Invalid containing: {val} (type {type(val)}, types {[type(i) for i in val]})" )
                     raise KeywordParseException( f"containing must be a tuple or list with two decimal degree values" )
                 q += f' {andtxt} minra<=%(ra)s AND maxra>=%(ra)s AND mindec<=%(dec)s AND maxdec>=%(dec)s '
                 ra = val[0]
@@ -128,18 +158,18 @@ class BaseView(flask.views.View):
             field = None
             match = self.minmaxre.search( kw )
             if match is not None:
-                minmax = re.group(2)
-                field = re.group(1)
+                minmax = match.group(2)
+                field = match.group(1)
             else:
                 field = kw
 
             if ( field in pointing_nums ) or ( field in sca_nums ):
                 tab = "p" if ( field in pointing_nums) else "s"
-                q += f' {andtxt} {tab}.{field[9:]}' if field[0:8] == 'pointing' else f'{andtxt} {tab}.{field} '
-                q += andtxt + ' ' + field
+                q += f' {andtxt} {tab}.{field[9:]}' if field[0:8] == 'pointing' else f'{andtxt} {tab}.{field}'
                 q += ">=" if minmax == "min" else "<=" if minmax == "max" else "="
-                q += "%({tab}_{field})s"
-                subdict[ f"{tab}_{field}" ] = val
+                var = f"{tab}_{field}{'_min' if minmax=='min' else '_max' if minmax=='max' else ''}"
+                q += f"%({var})s "
+                subdict[ f"{var}" ] = val
                 andtxt = 'AND'
 
             elif ( field in pointing_text ) or ( field in sca_text ):
@@ -167,31 +197,39 @@ class MainPage(BaseView):
 # ======================================================================
 
 class FindImages(BaseView):
-    def dispatch_request( self, argstr=None ):
+    def do_the_things( self, argstr=None ):
         data = self.argstr_to_args( argstr )
         if not isinstance( data, dict ):
             app.logger.error( "FindImages: data isn't a dict!  This shouldn't happen" )
             return f"FindImages: data isn't a dict!  This shouldn't happen", 500
 
-        wheretxt, subdict, containing, ra, dec = self.parse_kws_to_sql( data )
+        try:
+            wheretxt, subdict, containing, ra, dec = self.parse_kws_to_sql( data )
+        except KeywordParseException as ex:
+            return f"Failed to parse {argstr}: {str(ex)}", 500
 
         q = ( "SELECT p.num AS pointingnum,p.ra AS borera,p.dec AS boredec,p.filter,p.exptime,p.mjd,p.pa,"
-              "  s.scanum,s.ra,s.dec,s.ra_00,sa.dec_00,sa.ra_01,s.dec_01,s.ra_10,s.dec_10,s.ra_11,s.dec_11" )
+              "  s.scanum,s.ra,s.dec,s.ra_00,s.dec_00,s.ra_01,s.dec_01,s.ra_10,s.dec_10,s.ra_11,s.dec_11" )
         if containing:
             q += " INTO TEMP TABLE temp_find_images "
-        q += " FROM scal s INNER JOIN pointing p ON s.pointing=p.num "
+        q += " FROM sca s INNER JOIN pointing p ON s.pointing=p.num "
         q += f" WHERE {wheretxt} "
         q += " ORDER BY p.mjd "
 
         with DB() as con:
-            cursor = con.cusor()
+            cursor = con.cursor()
+            app.logger.debug( f"q={q}" )
+            app.logger.debug( f"subdict={subdict}" )
+            app.logger.debug( f"Sending query: {cursor.mogrify(q,subdict)}" )
             cursor.execute( q, subdict )
 
             if containing:
-                cursor.execute( "SELECT * FROM temp_find_images WHERE "
-                                "q3c_poly_query(%(ra)s, %(dec)s, "
-                                "((ra_00,dec_00), (ra_01,dec_01), (ra_11,dec_11), (ra10,dec_10))::polygon",
-                                { 'ra': ra, 'dec': dec } )
+                q = ( "SELECT * FROM temp_find_images WHERE "
+                      "q3c_poly_query(%(ra)s, %(dec)s, "
+                      "ARRAY[ra_00,dec_00, ra_01,dec_01, ra_11,dec_11, ra_10,dec_10])" )
+                subdict = { 'ra': ra, 'dec': dec }
+                app.logger.debug( f"Sending query: {cursor.mogrify(q,subdict)}" )
+                cursor.execute( q, subdict )
 
             cols = [ d[0] for d in cursor.description ]
             rows = cursor.fetchall()
@@ -212,6 +250,7 @@ app.add_url_rule( "/",
                   strict_slashes=False )
 
 rules = {
+    "/findimages": FindImages,
     "/findimages/<path:argstr>": FindImages,
 }
 
