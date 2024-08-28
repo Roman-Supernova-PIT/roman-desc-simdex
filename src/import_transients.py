@@ -68,6 +68,7 @@ def main():
                         'host_mag_i': float(row.host_mag_i),
                         'host_mag_f': float(row.host_mag_F),
                         'host_sn_sep': float(row.host_sn_sep),
+                        'peak_mjd': float(row.peak_mjd),
                         'peak_mag_g': float(row.peak_mag_g),
                         'peak_mag_i': float(row.peak_mag_i),
                         'peak_mag_f': float(row.peak_mag_F),

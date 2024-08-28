@@ -138,7 +138,7 @@ class BaseView(flask.views.View):
                                    }
                           }
             elif transientsearch:
-                fields = { 'transient': { 'nums': { 'id', 'healpix', 'ra', 'dec', 'host_id', 'int',
+                fields = { 'transient': { 'nums': { 'id', 'healpix', 'ra', 'dec', 'host_id', 'gentype',
                                                     'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv',
                                                     'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
                                                     'host_mag_g', 'host_mag_i', 'host_mag_f',
@@ -208,7 +208,7 @@ class BaseView(flask.views.View):
                     break
 
             if not foundfield:
-                raise KeywordParseException( f"Unknown field {field}" )
+                raise KeywordParseException( f"Unknown search field {field}" )
 
         return q, subdict, containing, ra, dec
             
@@ -284,7 +284,7 @@ class FindTransients(BaseView):
             if not set( data['fields'] ).issubset( set( allfields ) ):
                 diff = set( data['fields' ] ) - set( allfields )
                 app.logger.error( "FindTransients: passed invalid fields {diff}" )
-                return "Invalid transient return fields: {diff}", 500
+                return f"Invalid transient return fields: {diff}", 500
             fields = ",".join( data[ 'fields' ] )
             del data['fields']
         else:
