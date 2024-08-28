@@ -47,8 +47,11 @@ def make_corners( i, pointinginfo, scainfo ):
         ra = scainfo['ra'][scadex]
         dec = scainfo['dec'][scadex]
 
+        suffix = f"{pointinginfo["filter"]}_{i}_{sca}.fits.gz"
+        _logger.info( f"Doing ...{suffix}" )
+        
         fpath = ( imagedir / 'images' / 'simple_model' / pointinginfo['filter']
-                  / str(i) / f'Roman_TDS_simple_model_{pointinginfo["filter"]}_{i}_{sca}.fits.gz' )
+                  / str(i) / f'Roman_TDS_simple_model_{suffix}' )
         with fits.open( fpath ) as hdus:
             nx = hdus[1].header['NAXIS1']
             ny = hdus[1].header['NAXIS2']
@@ -120,35 +123,33 @@ def main():
 
     # Figure out how far we got
 
+    _ntodo = len(obseq)
+    done = None
+    uh_oh = False
     cornerfile = pathlib.Path( "corners.csv" )
     if cornerfile.is_file():
-        done = pandas.read_csv( cornerfile )
-        lastdone = done.pointing.max()
-        if len( done[ done.pointing == lastdone ] ) != 18:
-            raise RuntimeError( f"Last pointing {pointing} doesn't have 18 rows" )
+        done = pandas.read_csv( cornerfile ).set_index( [ 'pointing', 'sca' ] )
+        donedexes = done.index.get_level_values( 'pointing' ).unique()
+        for dex in donedexes:
+            l =  len( done.xs( dex, level='pointing' ) )
+            if l != 18:
+                _logger.error( f"Pointing {dex} only has {l} SCAs" )
+                uh_oh = True
+        if uh_oh:
+            raise RuntimeError( "Current corners file is corrupt" )
+        _ntodo -= len( donedexes )
         done = None
-
     else:
-        lastdone = -1
         with open( "corners.csv", "w" ) as csv:
             csv.write( "pointing,sca,ra00,dec00,ra01,dec01,ra10,dec10,ra11,dec11,minra,maxra,mindec,maxdec\n" )
 
-
-    _ntodo = len(obseq) - (lastdone+1)
-            
-    # TESTING HACK ALERT -- just do a few rows so it will complete and we can see what's happening
-    if False:
-        obseq = obseq[:lastdone+6]
-        radec = radec[:lastdone+6]
-        _ntodo = 5
-
+    _logger.info( f"{len(donedexes)} of {len(obseq)} in corners.cvs, {_ntodo} left" )
     _logger.info( 'Starting SCAs' )
 
     pool = multiprocessing.pool.Pool( nprocs, maxtasksperchild=1 )
     
     for i, (pointinginfo, scainfo) in enumerate( zip( obseq, radec ) ):
-        if i <= lastdone:
-            # Only start where we weren't done
+        if i in donedexes:
             continue
 
         pool.apply_async( make_corners, (i, pointinginfo, scainfo), callback=write_corners )
