@@ -4,6 +4,7 @@
 
 import sys
 import os
+import re
 import io
 import pathlib
 import logging
@@ -35,84 +36,114 @@ if not _logger.hasHandlers():
 
 
 _totndone = 0
+_nfailed = 0
 _ntodo = 0
 
     
 def make_corners( i, pointinginfo, scainfo ):
     global imagedir
-    
-    corners = []
-    for scadex in range( len( scainfo['ra'] ) ):
-        sca = scadex + 1
-        ra = scainfo['ra'][scadex]
-        dec = scainfo['dec'][scadex]
 
-        suffix = f"{pointinginfo["filter"]}_{i}_{sca}.fits.gz"
-        _logger.info( f"Doing ...{suffix}" )
+    try:
+        me = multiprocessing.current_process()
+        match = re.search( '([0-9]+)', me.name )
+        if match is not None:
+            me.name = f'{int(match.group(1)):3d}'
+
+        corners = []
+        scafiles = {}
+        missing = set()
+        _logger.info( f"Process {me.name} doing pointing {i} (filter {pointinginfo['filter']})" )
+
+        # Check for existence of all files first
+        for scadex in range( len(scainfo['ra'] ) ):
+            sca = scadex + 1
+            suffix = f"{pointinginfo['filter']}_{i}_{sca}.fits.gz"
+            fpath = ( imagedir / 'images' / 'simple_model' / pointinginfo['filter']
+                      / str(i) / f'Roman_TDS_simple_model_{suffix}' )
+            if fpath.is_file():
+                scafiles[ sca ] = fpath
+            else:
+                missing.add( fpath.name )
+
+        if len(missing) > 0:
+            _logger.error( f"Process {me.name}: for pointing {i}, some files are missing: {missing}" )
+            return []
         
-        fpath = ( imagedir / 'images' / 'simple_model' / pointinginfo['filter']
-                  / str(i) / f'Roman_TDS_simple_model_{suffix}' )
-        with fits.open( fpath ) as hdus:
-            nx = hdus[1].header['NAXIS1']
-            ny = hdus[1].header['NAXIS2']
-            wcs = WCS( header=hdus[1].header )
+        for scadex in range( len( scainfo['ra'] ) ):
+            sca = scadex + 1
+            ra = scainfo['ra'][scadex]
+            dec = scainfo['dec'][scadex]
 
-        cornerras, cornerdecs = wcs.pixel_to_world_values( [ 0, 0, nx-1, nx-1 ],
-                                                           [ 0, ny-1, 0, ny-1 ] )
+            fpath = scafiles[ sca ]
+            with fits.open( fpath ) as hdus:
+                nx = hdus[1].header['NAXIS1']
+                ny = hdus[1].header['NAXIS2']
+                wcs = WCS( header=hdus[1].header )
 
-        minra = min(cornerras)
-        maxra = max(cornerras)
-        mindec = min(cornerdecs)
-        maxdec = max(cornerdecs)
+            cornerras, cornerdecs = wcs.pixel_to_world_values( [ 0, 0, nx-1, nx-1 ],
+                                                               [ 0, ny-1, 0, ny-1 ] )
 
-        ##### Attempt to order them so that 00, 01, 10, 11 makes sense on the sky
-        raorder = [ 0, 1, 2, 3 ]
-        raorder.sort( key=lambda i: cornerras[i] )
+            minra = min(cornerras)
+            maxra = max(cornerras)
+            mindec = min(cornerdecs)
+            maxdec = max(cornerdecs)
 
-        # Try to detect an RA that spans 0
-        if cornerras[raorder[3]] - cornerras[raorder[0]] > 180.:
-            newras = [ r - 360. if r > 180. else r for r in cornerras ]
-            raorder.sort( key=lambda i: newras[i] )
-            minra = min(newras)
-            maxra = max(newras)
-            minra = minra if minra > 0 else minra + 360.
-            maxra = maxra if maxra > 0 else maxra + 360.
+            ##### Attempt to order them so that 00, 01, 10, 11 makes sense on the sky
+            raorder = [ 0, 1, 2, 3 ]
+            raorder.sort( key=lambda i: cornerras[i] )
 
-        # Of the two lowest ras, of those pick the one with the lower dec;
-        #   that's 00, the other one is 01
+            # Try to detect an RA that spans 0
+            if cornerras[raorder[3]] - cornerras[raorder[0]] > 180.:
+                newras = [ r - 360. if r > 180. else r for r in cornerras ]
+                raorder.sort( key=lambda i: newras[i] )
+                minra = min(newras)
+                maxra = max(newras)
+                minra = minra if minra > 0 else minra + 360.
+                maxra = maxra if maxra > 0 else maxra + 360.
 
-        dex00 = raorder[0] if cornerdecs[raorder[0]] < cornerdecs[raorder[1]] else raorder[1]
-        dex01 = raorder[1] if cornerdecs[raorder[0]] < cornerdecs[raorder[1]] else raorder[0]
+            # Of the two lowest ras, of those pick the one with the lower dec;
+            #   that's 00, the other one is 01
 
-        # Same thing, now high ra
+            dex00 = raorder[0] if cornerdecs[raorder[0]] < cornerdecs[raorder[1]] else raorder[1]
+            dex01 = raorder[1] if cornerdecs[raorder[0]] < cornerdecs[raorder[1]] else raorder[0]
 
-        dex10 = raorder[2] if cornerdecs[raorder[2]] < cornerdecs[raorder[3]] else raorder[3]
-        dex11 = raorder[3] if cornerdecs[raorder[2]] < cornerdecs[raorder[3]] else raorder[2]
+            # Same thing, now high ra
 
-        ra_00 = cornerras[ dex00 ]
-        dec_00 = cornerdecs[ dex00 ]
-        ra_01 = cornerras[ dex01 ]
-        dec_01 = cornerdecs[ dex01 ]
-        ra_10 = cornerras[ dex10 ]
-        dec_10 = cornerdecs[ dex10 ]
-        ra_11 = cornerras[ dex11 ]
-        dec_11 = cornerdecs[ dex11 ]
+            dex10 = raorder[2] if cornerdecs[raorder[2]] < cornerdecs[raorder[3]] else raorder[3]
+            dex11 = raorder[3] if cornerdecs[raorder[2]] < cornerdecs[raorder[3]] else raorder[2]
 
-        corners.append( [ i, sca, ra_00, dec_00, ra_01, dec_01, ra_10, dec_10, ra_11, dec_11,
-                          minra, maxra, mindec, maxdec ] )
+            ra_00 = cornerras[ dex00 ]
+            dec_00 = cornerdecs[ dex00 ]
+            ra_01 = cornerras[ dex01 ]
+            dec_01 = cornerdecs[ dex01 ]
+            ra_10 = cornerras[ dex10 ]
+            dec_10 = cornerdecs[ dex10 ]
+            ra_11 = cornerras[ dex11 ]
+            dec_11 = cornerdecs[ dex11 ]
 
-    return corners
+            corners.append( [ i, sca, ra_00, dec_00, ra_01, dec_01, ra_10, dec_10, ra_11, dec_11,
+                              minra, maxra, mindec, maxdec ] )
+
+        _logger.info( f"Process {me.name} done with pointing {i}" )
+        return corners
+    except Exception as ex:
+        _logger.error( f"Process {me.name} exception with pointing {i}: {ex}" )
+        return []
+    
 
 def write_corners( corners ):
-    global _totndone, _ntodo
-    
-    with open( "corners.csv", "a" ) as csv:
-        for row in corners:
-            csv.write( ",".join( [ str(r) for r in row ] ) )
-            csv.write( "\n" )
+    global _totndone, _ntodo, _nfailed
 
-    _totndone += 1
-    _logger.info( f"...{_totndone} of {_ntodo} done" )
+    if len(corners) > 0:
+        with open( "corners.csv", "a" ) as csv:
+            for row in corners:
+                csv.write( ",".join( [ str(r) for r in row ] ) )
+                csv.write( "\n" )
+        _totndone += 1
+    else:
+        _nfailed += 1
+        
+    _logger.info( f"...{_totndone} done, {_nfailed} failed (tot {_totndone+_nfailed}) of {_ntodo}" )
     
 
 def main():
@@ -146,7 +177,7 @@ def main():
     _logger.info( f"{len(donedexes)} of {len(obseq)} in corners.cvs, {_ntodo} left" )
     _logger.info( 'Starting SCAs' )
 
-    pool = multiprocessing.pool.Pool( nprocs, maxtasksperchild=1 )
+    pool = multiprocessing.pool.Pool( nprocs )
     
     for i, (pointinginfo, scainfo) in enumerate( zip( obseq, radec ) ):
         if i in donedexes:

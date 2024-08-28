@@ -118,16 +118,38 @@ class BaseView(flask.views.View):
         return kwargs
 
 
-    def parse_kws_to_sql( self, data, pointing_nums=None, pointing_text=None, sca_nums=None, sca_text=None ):
-        if pointing_nums is None:
-            pointing_nums = { 'num', 'pointing_ra', 'pointing_dec', 'exptime', 'mjd', 'pa' }
-        if pointing_text is None:
-            pointing_text = { 'filter' }
-        if sca_nums is None:
-            sca_nums = { 'scanum', 'ra', 'dec', 'ra_00', 'dec_00', 'ra_01', 'dec_01', 'ra_10', 'dec_10',
-                         'ra_11', 'dec_11', 'minra', 'maxra', 'mindec', 'maxdec' }
-        if sca_text is None:
-            sca_text = {}
+    def parse_kws_to_sql( self, data, fields=None, imagesearch=False, transientsearch=False ):
+        if fields is None:
+            if imagesearch == transientsearch:
+                raise ValueError( "Must either pass fields or set exactly one of (imagesearch,transientsearch)" )
+            if imagesearch:
+                fields = { 'pointing': { 'nums': { 'num', 'pointing_ra', 'pointing_dec', 'exptime', 'mjd', 'pa' },
+                                         'text': { 'filter' },
+                                         'abbrev': 'p',
+                                         'map': { 'pointing_ra': 'ra', 'pointing_dec': 'dec' },
+                                        },
+                           'sca': { 'nums': { 'scanum', 'ra', 'dec',
+                                              'ra_00', 'dec_00', 'ra_01', 'dec_01',
+                                              'ra_10', 'dec_10', 'ra_11', 'dec_11',
+                                              'minra', 'maxra', 'mindec', 'maxdec' },
+                                    'text': {},
+                                    'map': {},
+                                    'abbrev': 's'
+                                   }
+                          }
+            elif transientsearch:
+                fields = { 'transient': { 'nums': { 'id', 'healpix', 'ra', 'dec', 'host_id', 'int',
+                                                    'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv',
+                                                    'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
+                                                    'host_mag_g', 'host_mag_i', 'host_mag_f',
+                                                    'host_sn_sep', 'peak_mjd',
+                                                    'peak_mag_g', 'peak_mag_i', 'peak_mag_f',
+                                                    'lens_dmu' },
+                                          'text': { 'model_name' },
+                                          'map': {},
+                                          'abbrev': 't'
+                                         }
+                          }
 
         andtxt = ''
         q = ''
@@ -137,6 +159,7 @@ class BaseView(flask.views.View):
         dec = None
         
         for kw, val in data.items():
+            # Special case: containing for an image search
             if kw == 'containing':
                 app.logger.debug( f"Gonna check if {val} is a tuple or list of 2 ints/floats" )
                 if ( ( not ( isinstance(val, tuple) or isinstance(val, list) ) ) or ( len(val) != 2 )
@@ -145,7 +168,12 @@ class BaseView(flask.views.View):
                     ):
                     app.logger.error( f"Invalid containing: {val} (type {type(val)}, types {[type(i) for i in val]})" )
                     raise KeywordParseException( f"containing must be a tuple or list with two decimal degree values" )
-                q += f' {andtxt} minra<=%(ra)s AND maxra>=%(ra)s AND mindec<=%(dec)s AND maxdec>=%(dec)s '
+                q += ( f' {andtxt} ( mindec<=%(dec)s AND maxdec>=%(dec)s '
+                       f'            AND '
+                       f'            ( maxra>minra AND minra<=%(ra)s AND maxra>=%(ra)s ) '
+                       f'            OR '
+                       f'            ( maxra<minra AND ( %(ra)<=maxra OR %(ra)>=minra ) ) ) ' )
+
                 ra = val[0]
                 dec = val[1]
                 subdict['ra'] = ra
@@ -163,27 +191,24 @@ class BaseView(flask.views.View):
             else:
                 field = kw
 
-            if ( field in pointing_nums ) or ( field in sca_nums ):
-                tab = "p" if ( field in pointing_nums) else "s"
-                q += f' {andtxt} {tab}.{field[9:]}' if field[0:8] == 'pointing' else f'{andtxt} {tab}.{field}'
-                q += ">=" if minmax == "min" else "<=" if minmax == "max" else "="
-                var = f"{tab}_{field}{'_min' if minmax=='min' else '_max' if minmax=='max' else ''}"
-                q += f"%({var})s "
-                subdict[ f"{var}" ] = val
-                andtxt = 'AND'
+            foundfield = False
+            for tab, tabinfo in fields.items():
+                if ( field in tabinfo['nums'] ) or ( field in tabinfo['text'] ):
+                    foundfield = True
+                    dbfield = field if field not in tabinfo['map'] else tabinfo['map'][field]
+                    abbrev = tabinfo['abbrev']
+                    if ( field in tabinfo['text'] ) and ( minmax is not None ):
+                        raise KeywordParseExcepotion( f"_min and _max invalid with field {field}" )
+                    var = f"{abbrev}_{field}{'_min' if minmax=='min' else '_max' if minmax=='max' else ''}"
+                    q += f' {andtxt} {abbrev}.{dbfield}'
+                    q += ">=" if minmax == "min" else "<=" if minmax == "max" else "="
+                    q += f"%({var})s "
+                    subdict[ var ] = val
+                    andtxt = 'AND'
+                    break
 
-            elif ( field in pointing_text ) or ( field in sca_text ):
-                tab = "p" if ( field in pointing_text ) else "s"
-                if minmax is not None:
-                    app.logger.error( f"_min and _max invalid with field {field}" )
-                    raise KeywordParseException( f"_min and _max invalid with field {field}" )
-                q += f' {andtxt} {tab}.{field}=%({tab}_{field})s '
-                subdict[ f"{tab}_{field}" ] = val
-                andtxt = 'AND'
-            
-            else:
-                app.logger.error( "Invalid search keyword {kw}" )
-                raise KeywordParseException( f"Invalid search keyword {kw}" )
+            if not foundfield:
+                raise KeywordParseException( f"Unknown field {field}" )
 
         return q, subdict, containing, ra, dec
             
@@ -204,7 +229,7 @@ class FindImages(BaseView):
             return f"FindImages: data isn't a dict!  This shouldn't happen", 500
 
         try:
-            wheretxt, subdict, containing, ra, dec = self.parse_kws_to_sql( data )
+            wheretxt, subdict, containing, ra, dec = self.parse_kws_to_sql( data, imagesearch=True )
         except KeywordParseException as ex:
             return f"Failed to parse {argstr}: {str(ex)}", 500
 
@@ -241,6 +266,48 @@ class FindImages(BaseView):
                          
 # ======================================================================
 
+class FindTransients(BaseView):
+    def do_the_things( self, argstr=None ):
+        data = self.argstr_to_args( argstr )
+        if not isinstance( data, dict ):
+            app.logger.error( "FindTransients: data isn't a dict!  This shouldn't happen" )
+            return f"FindTransients: data isn't a dict!  This shouldn't happen", 500
+
+        
+        allfields = [ 'id', 'healpix', 'ra', 'dec', 'host_id', 'gentype', 'model_name',
+                      'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv', 'mw_extinction_applied',
+                      'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
+                      'host_mag_g', 'host_mag_i', 'host_mag_f', 'host_sn_sep',
+                      'peak_mjd', 'peak_mag_g', 'peak_mag_i', 'peak_mag_f',
+                      'lens_dmu', 'lens_dmu_applied', 'model_params' ]
+        if 'fields' in data:
+            if not set( data['fields'] ).issubset( set( allfields ) ):
+                diff = set( data['fields' ] ) - set( allfields )
+                app.logger.error( "FindTransients: passed invalid fields {diff}" )
+                return "Invalid transient return fields: {diff}", 500
+            fields = ",".join( data[ 'fields' ] )
+            del data['fields']
+        else:
+            fields = "*"
+
+        wheretxt, subdict, _, _, _ = self.parse_kws_to_sql( data, transientsearch=True )
+        q = f"SELECT {fields} FROM transient t WHERE {wheretxt}"
+
+        with DB() as con:
+            cursor = con.cursor()
+            app.logger.debug( f"q={q}" )
+            app.logger.debug( f"subdict={subdict}" )
+            app.logger.debug( f"Sending query: {cursor.mogrify(q,subdict)}" )
+            cursor.execute( q, subdict )
+            cols = [ d[0] for d in cursor.description ]
+            rows = cursor.fetchall()
+
+        rval = { c: [ r[i] for r in rows ] for i, c in enumerate( cols ) }
+
+        return rval
+
+# ======================================================================
+
 app = flask.Flask( __name__, instance_relative_config=True )
 # app.logger.setLevel( logging.INFO )
 app.logger.setLevel( logging.DEBUG )
@@ -252,6 +319,8 @@ app.add_url_rule( "/",
 rules = {
     "/findimages": FindImages,
     "/findimages/<path:argstr>": FindImages,
+    "/findtransients": FindTransients,
+    "/findtransients/<path:argstr>": FindTransients,
 }
 
 # Dysfunctionality alert: flask routing doesn't interpret "0" or "5" as
