@@ -44,6 +44,7 @@ RUN source /venv/bin/activate && \
        python-dateutil \
        pytz \
        requests \
+       pandas \
        astropy
 
 # ======================================================================
