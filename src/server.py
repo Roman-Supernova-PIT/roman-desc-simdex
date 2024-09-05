@@ -145,7 +145,7 @@ class BaseView(flask.views.View):
                                                 'abbrev': 'p',
                                                 'map': { 'pointing_ra': 'ra', 'pointing_dec': 'dec' },
                                                },
-                                  'sca': { 'nums': { 'scanum', 'ra', 'dec',
+                                  'sca': { 'nums': { 'sca', 'ra', 'dec',
                                                      'ra_00', 'dec_00', 'ra_01', 'dec_01',
                                                      'ra_10', 'dec_10', 'ra_11', 'dec_11',
                                                      'minra', 'maxra', 'mindec', 'maxdec' },
@@ -254,8 +254,8 @@ class MainPage(BaseView):
 
 class FindRomanImages(BaseView):
     def do_the_things( self, argstr=None ):
-        allfields = [ 'pointingnum', 'borera', 'boredec', 'filter', 'exptime', 'mjd', 'pa',
-                      'scanum', 'ra', 'dec', 'ra_00', 'dec_00', 'ra_01', 'dec_01',
+        allfields = [ 'pointing', 'borera', 'boredec', 'filter', 'exptime', 'mjd', 'pa',
+                      'sca', 'ra', 'dec', 'ra_00', 'dec_00', 'ra_01', 'dec_01',
                       'ra_10', 'dec_10', 'ra_11', 'dec_11', ]
 
         ( wheretxt, subdict, fields,
@@ -264,8 +264,8 @@ class FindRomanImages(BaseView):
         if re.search( wheretxt, "^/s*$" ):
             return "findimages failed: must include some search criteria", 500
         
-        q = ( "SELECT p.num AS pointingnum,p.ra AS borera,p.dec AS boredec,p.filter,p.exptime,p.mjd,p.pa,"
-              "  s.scanum,s.ra,s.dec,s.ra_00,s.dec_00,s.ra_01,s.dec_01,s.ra_10,s.dec_10,s.ra_11,s.dec_11" )
+        q = ( "SELECT p.num AS pointing,p.ra AS borera,p.dec AS boredec,p.filter,p.exptime,p.mjd,p.pa,"
+              "  s.sca,s.ra,s.dec,s.ra_00,s.dec_00,s.ra_01,s.dec_01,s.ra_10,s.dec_10,s.ra_11,s.dec_11" )
         if containing:
             q += " INTO TEMP TABLE temp_find_images "
         q += " FROM sca s INNER JOIN pointing p ON s.pointing=p.num "
