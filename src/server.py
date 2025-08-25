@@ -23,7 +23,7 @@ def DB():
     finally:
         con.rollback()
         con.close()
-        
+
 
 # ======================================================================
 
@@ -44,19 +44,19 @@ class BaseView(flask.views.View):
             traceback.print_exc( file=sio )
             app.logger.error( sio.getvalue() )
             return f"Exception in {self.__class__.__name__}: {str(ex)}", 500
-        
+
 
     kwvalre = re.compile( r'^(?P<k>[^=]+)=(?P<v>.*)$' )
     tuplistre = re.compile( r'^ *([\(\[])(.*)([\]\)]) *$' )
     intre = re.compile( r'^[\+\-]?[0-9]+$' )
     floatre = re.compile( r'^[\+\-]?[0-9]*\.?[0-9]+(e[\+\-]?[0-9]+)?$' )
     minmaxre = re.compile( r'^(.*)_(min|max)' )
-    
+
     def argstr_to_args( self, argstr ):
         """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
 
         app.logger.debug( f"Parsing argstr \"{argstr}\"" )
-        
+
         kwargs = {}
         if argstr is not None:
             for arg in argstr.split("/"):
@@ -108,17 +108,16 @@ class BaseView(flask.views.View):
                     raise KeywordParseException( f"error parsing value \"{val}\"; this should never happen!" )
 
                 app.logger.debug( f"keyword {kw} parsed to {parsedval} (type {type(parsedval)})" )
-                
+
                 kwargs[ kw ] = parsedval
-                
+
         if flask.request.is_json:
             kwargs.update( flask.request.json )
 
         return kwargs
 
 
-    def parse_kws_to_sql( self, argstr, fieldspec=None, imagesearch=False, transientsearch=False, allfields=None ):
-        data = self.argstr_to_args( argstr )
+    def parse_kws_to_sql( self, data, fieldspec=None, imagesearch=False, transientsearch=False, allfields=None ):
         if not isinstance( data, dict ):
             app.logger.error( f"parse_kws_to_sql: data isn't a dict!  This shouldn't happen" )
             raise Exception( f"parse_kws_to_sql: data isn't a dict!  This shouldn't happen" )
@@ -132,7 +131,7 @@ class BaseView(flask.views.View):
             del data['fields']
         else:
             fields = "*"
-            
+
         try:
             if fieldspec is None:
                 if bool(imagesearch) == bool(transientsearch):
@@ -155,7 +154,7 @@ class BaseView(flask.views.View):
                                           }
                                  }
                 elif transientsearch:
-                    fieldspec = { 'transient': { 'nums': { 'id', 'healpix', 'ra', 'dec', 'host_id', 'gentype',
+                    fieldspec = { 'transient': { 'nums': { 'id', 'healpix', 'host_id', 'gentype',
                                                            'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv',
                                                            'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
                                                            'host_mag_g', 'host_mag_i', 'host_mag_f',
@@ -241,9 +240,9 @@ class BaseView(flask.views.View):
                 msg += f"POST data \"{str(flask.request.data)}\" "
             msg += f": {str(ex)}"
             app.logger.error( msg )
-            return msg, 500
-            
-    
+            raise
+
+
 # ======================================================================
 
 class MainPage(BaseView):
@@ -259,11 +258,12 @@ class FindRomanImages(BaseView):
                       'ra_10', 'dec_10', 'ra_11', 'dec_11', ]
 
         ( wheretxt, subdict, fields,
-          containing, ra, dec ) = self.parse_kws_to_sql( argstr, imagesearch=True, allfields=allfields )
+          containing, ra, dec ) = self.parse_kws_to_sql( self.argstr_to_args(argstr),
+                                                         imagesearch=True, allfields=allfields )
 
         if re.search( wheretxt, "^/s*$" ):
             return "findimages failed: must include some search criteria", 500
-        
+
         q = ( "SELECT p.num AS pointing,p.ra AS borera,p.dec AS boredec,p.filter,p.exptime,p.mjd,p.pa,"
               "  s.sca,s.ra,s.dec,s.ra_00,s.dec_00,s.ra_01,s.dec_01,s.ra_10,s.dec_10,s.ra_11,s.dec_11" )
         if containing:
@@ -293,8 +293,8 @@ class FindRomanImages(BaseView):
         rval = { c: [ r[i] for r in rows ] for i, c in enumerate( cols ) }
 
         return rval
-                    
-                         
+
+
 # ======================================================================
 
 class FindTransients(BaseView):
@@ -306,7 +306,25 @@ class FindTransients(BaseView):
                       'peak_mjd', 'peak_mag_g', 'peak_mag_i', 'peak_mag_f',
                       'lens_dmu', 'lens_dmu_applied', 'model_params' ]
 
-        wheretxt, subdict, fields, _, _, _ = self.parse_kws_to_sql( argstr, transientsearch=True, allfields=allfields )
+        data = self.argstr_to_args( argstr )
+        if ( ( 'ra' in data ) != ( 'dec' in data ) ) or ( ( 'ra' in data ) != ( 'radius' in data ) ):
+            raise ValueError( "Must pass all or none of (ra, dec, radius)" )
+        if 'ra' in data:
+            wheretxt = "q3c_radial_query(ra, dec, %(ra)s, %(dec)s, %(radius)s) "
+            subdict = { 'ra': float(data['ra']), 'dec': float(data['dec']),
+                        'radius': float(data['radius'])/3600. }
+            del data['ra']
+            del data['dec']
+            del data['radius']
+        else:
+            wheretxt = ""
+            subdict = {}
+
+        ( morewheretxt, moresubdict, fields, _, _, _ ) = self.parse_kws_to_sql( data,
+                                                                                transientsearch=True,
+                                                                                allfields=allfields )
+        wheretxt += morewheretxt
+        subdict.update( moresubdict )
 
         q = f"SELECT {fields} FROM transient t WHERE {wheretxt}"
 
