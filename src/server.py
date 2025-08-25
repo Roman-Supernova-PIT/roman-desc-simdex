@@ -57,64 +57,77 @@ class BaseView(flask.views.View):
 
         app.logger.debug( f"Parsing argstr \"{argstr}\"" )
 
-        kwargs = {}
-        if argstr is not None:
-            for arg in argstr.split("/"):
-                match = self.kwvalre.search( arg )
-                if match is None:
-                    raise KeywordParseException( f"error parsing url argument {arg}, must be key=value" )
-                kw = match.group('k').strip()
-                val = match.group('v').strip()
-                parsedval = None
+        try:
+            kwargs = {}
+            if argstr is not None:
+                for arg in argstr.split("/"):
+                    match = self.kwvalre.search( arg )
+                    if match is None:
+                        raise KeywordParseException( f"error parsing url argument {arg}, must be key=value" )
+                    kw = match.group('k').strip()
+                    val = match.group('v').strip()
+                    parsedval = None
 
-                # Look for list or tuple
-                match = self.tuplistre.search( val )
-                if ( ( match is not None ) and
-                     ( ( ( match.group(1) == '(' ) and ( match.group(3) == ')' ) )
-                       or
-                       ( ( match.group(1) == '[' ) and ( match.group(3) == ']' ) )
-                      )
-                    ):
-                    istuple = ( match.group(1) == '(' )
-                    app.logger.debug( f"{val} is a {'tuple' if istuple else 'list'}" )
-                    items = [ i.strip() for i in match.group(2).split(",") ]
-                    app.logger.debug( f"Parsed {match.group(2)} to {items}" )
-                    parsedval = []
-                    for i in items:
-                        if self.intre.search( i ):
-                            parsedval.append( int(i) )
-                            app.logger.debug( f"Parsed {i} to integer" )
-                        elif self.floatre.search( i ):
-                            parsedval.append( float(i) )
-                            app.logger.debug( f"Parsed {i} to float" )
-                        else:
-                            parsedval.append( i )
-                            app.logger.debug( f"Parsed {i} to string" )
-                    if istuple:
-                        parsedval = tuple(parsedval )
-                    app.logger.debug( f"parsedval={parsedval}" )
+                    # Look for list or tuple
+                    match = self.tuplistre.search( val )
+                    if ( ( match is not None ) and
+                         ( ( ( match.group(1) == '(' ) and ( match.group(3) == ')' ) )
+                           or
+                           ( ( match.group(1) == '[' ) and ( match.group(3) == ']' ) )
+                          )
+                        ):
+                        istuple = ( match.group(1) == '(' )
+                        app.logger.debug( f"{val} is a {'tuple' if istuple else 'list'}" )
+                        items = [ i.strip() for i in match.group(2).split(",") ]
+                        app.logger.debug( f"Parsed {match.group(2)} to {items}" )
+                        parsedval = []
+                        for i in items:
+                            if self.intre.search( i ):
+                                parsedval.append( int(i) )
+                                app.logger.debug( f"Parsed {i} to integer" )
+                            elif self.floatre.search( i ):
+                                parsedval.append( float(i) )
+                                app.logger.debug( f"Parsed {i} to float" )
+                            else:
+                                parsedval.append( i )
+                                app.logger.debug( f"Parsed {i} to string" )
+                        if istuple:
+                            parsedval = tuple(parsedval )
+                        app.logger.debug( f"parsedval={parsedval}" )
 
-                else:
-                    app.logger.debug( f"{val} is a scalar" )
-                    # Look for int, then float
-                    if self.intre.search( val ):
-                        parsedval = int( val )
-                    elif self.floatre.search( val ):
-                        parsedval = float( val )
                     else:
-                        parsedval = val
+                        app.logger.debug( f"{val} is a scalar" )
+                        # Look for int, then float
+                        if self.intre.search( val ):
+                            parsedval = int( val )
+                        elif self.floatre.search( val ):
+                            parsedval = float( val )
+                        else:
+                            parsedval = val
 
-                if parsedval is None:
-                    raise KeywordParseException( f"error parsing value \"{val}\"; this should never happen!" )
+                    if parsedval is None:
+                        raise KeywordParseException( f"error parsing value \"{val}\"; this should never happen!" )
 
-                app.logger.debug( f"keyword {kw} parsed to {parsedval} (type {type(parsedval)})" )
+                    app.logger.debug( f"keyword {kw} parsed to {parsedval} (type {type(parsedval)})" )
 
-                kwargs[ kw ] = parsedval
+                    kwargs[ kw ] = parsedval
 
-        if flask.request.is_json:
-            kwargs.update( flask.request.json )
+            if flask.request.is_json:
+                kwargs.update( flask.request.json )
 
-        return kwargs
+            return kwargs
+
+        except KeywordParseException as ex:
+            msg = "Failed to parse "
+            if argstr is not None:
+                msg += f"argument string \"{argstr}\" "
+            if ( argstr is not None ) and ( len(flask.request.data) > 0 ):
+                msg += "and "
+            if len(flask.request.data) > 0:
+                msg += f"POST data \"{str(flask.request.data)}\" "
+            msg += f": {str(ex)}"
+            app.logger.error( msg )
+            raise
 
 
     def parse_kws_to_sql( self, data, fieldspec=None, imagesearch=False, transientsearch=False, allfields=None ):
@@ -132,115 +145,101 @@ class BaseView(flask.views.View):
         else:
             fields = "*"
 
-        try:
-            if fieldspec is None:
-                if bool(imagesearch) == bool(transientsearch):
-                    raise ValueError( "Must either pass fieldspec, "
-                                      "or set exactly one of (imagesearch,transientsearch)" )
-                if imagesearch:
-                    fieldspec = { 'pointing': { 'nums': { 'num', 'pointing_ra', 'pointing_dec',
-                                                          'exptime', 'mjd', 'pa' },
-                                                'text': { 'filter' },
-                                                'abbrev': 'p',
-                                                'map': { 'pointing_ra': 'ra', 'pointing_dec': 'dec' },
-                                               },
-                                  'sca': { 'nums': { 'sca', 'ra', 'dec',
-                                                     'ra_00', 'dec_00', 'ra_01', 'dec_01',
-                                                     'ra_10', 'dec_10', 'ra_11', 'dec_11',
-                                                     'minra', 'maxra', 'mindec', 'maxdec' },
-                                           'text': {},
-                                           'map': {},
-                                           'abbrev': 's'
-                                          }
-                                 }
-                elif transientsearch:
-                    fieldspec = { 'transient': { 'nums': { 'id', 'healpix', 'host_id', 'gentype',
-                                                           'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv',
-                                                           'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
-                                                           'host_mag_g', 'host_mag_i', 'host_mag_f',
-                                                           'host_sn_sep', 'peak_mjd',
-                                                           'peak_mag_g', 'peak_mag_i', 'peak_mag_f',
-                                                           'lens_dmu' },
-                                                 'text': { 'model_name' },
-                                                 'map': {},
-                                                 'abbrev': 't'
-                                                }
-                                 }
+        if fieldspec is None:
+            if bool(imagesearch) == bool(transientsearch):
+                raise ValueError( "Must either pass fieldspec, "
+                                  "or set exactly one of (imagesearch,transientsearch)" )
+            if imagesearch:
+                fieldspec = { 'pointing': { 'nums': { 'num', 'pointing_ra', 'pointing_dec',
+                                                      'exptime', 'mjd', 'pa' },
+                                            'text': { 'filter' },
+                                            'abbrev': 'p',
+                                            'map': { 'pointing_ra': 'ra', 'pointing_dec': 'dec' },
+                                           },
+                              'sca': { 'nums': { 'sca', 'ra', 'dec',
+                                                 'ra_00', 'dec_00', 'ra_01', 'dec_01',
+                                                 'ra_10', 'dec_10', 'ra_11', 'dec_11',
+                                                 'minra', 'maxra', 'mindec', 'maxdec' },
+                                       'text': {},
+                                       'map': {},
+                                       'abbrev': 's'
+                                      }
+                             }
+            elif transientsearch:
+                fieldspec = { 'transient': { 'nums': { 'id', 'healpix', 'host_id', 'gentype',
+                                                       'start_mjd', 'end_mjd', 'z_cmb', 'mw_ebv',
+                                                       'av', 'rv', 'v_pec', 'host_ra', 'host_dec',
+                                                       'host_mag_g', 'host_mag_i', 'host_mag_f',
+                                                       'host_sn_sep', 'peak_mjd',
+                                                       'peak_mag_g', 'peak_mag_i', 'peak_mag_f',
+                                                       'lens_dmu' },
+                                             'text': { 'model_name' },
+                                             'map': {},
+                                             'abbrev': 't'
+                                            }
+                             }
 
-            andtxt = ''
-            q = ''
-            subdict = {}
-            containing = False
-            ra = None
-            dec = None
+        andtxt = ''
+        q = ''
+        subdict = {}
+        containing = False
+        ra = None
+        dec = None
 
-            for kw, val in data.items():
-                # Special case: containing for an image search
-                if kw == 'containing':
-                    app.logger.debug( f"Gonna check if {val} is a tuple or list of 2 ints/floats" )
-                    if ( ( not ( isinstance(val, tuple) or isinstance(val, list) ) ) or ( len(val) != 2 )
-                         or ( not ( isinstance(val[0], float) or isinstance(val[0], int) ) )
-                         or ( not ( isinstance(val[1], float) or isinstance(val[1], int) ) )
-                        ):
-                        app.logger.error( f"Invalid containing: {val} (type {type(val)}, "
-                                          f"types {[type(i) for i in val]})" )
-                        raise KeywordParseException( f"containing must be a tuple or list "
-                                                     f"with two decimal degree values" )
-                    q += ( f' {andtxt} ( mindec<=%(dec)s AND maxdec>=%(dec)s '
-                           f'            AND '
-                           f'            ( maxra>minra AND minra<=%(ra)s AND maxra>=%(ra)s ) '
-                           f'            OR '
-                           f'            ( maxra<minra AND ( %(ra)s<=maxra OR %(ra)s>=minra ) ) ) ' )
+        for kw, val in data.items():
+            # Special case: containing for an image search
+            if kw == 'containing':
+                app.logger.debug( f"Gonna check if {val} is a tuple or list of 2 ints/floats" )
+                if ( ( not ( isinstance(val, tuple) or isinstance(val, list) ) ) or ( len(val) != 2 )
+                     or ( not ( isinstance(val[0], float) or isinstance(val[0], int) ) )
+                     or ( not ( isinstance(val[1], float) or isinstance(val[1], int) ) )
+                    ):
+                    app.logger.error( f"Invalid containing: {val} (type {type(val)}, "
+                                      f"types {[type(i) for i in val]})" )
+                    raise TypeError( f"containing must be a tuple or list with two decimal degree values" )
+                q += ( f' {andtxt} ( mindec<=%(dec)s AND maxdec>=%(dec)s '
+                       f'            AND '
+                       f'            ( maxra>minra AND minra<=%(ra)s AND maxra>=%(ra)s ) '
+                       f'            OR '
+                       f'            ( maxra<minra AND ( %(ra)s<=maxra OR %(ra)s>=minra ) ) ) ' )
 
-                    ra = val[0]
-                    dec = val[1]
-                    subdict['ra'] = ra
-                    subdict['dec'] = dec
-                    containing = True
+                ra = val[0]
+                dec = val[1]
+                subdict['ra'] = ra
+                subdict['dec'] = dec
+                containing = True
+                andtxt = 'AND'
+                continue
+
+            minmax = None
+            field = None
+            match = self.minmaxre.search( kw )
+            if match is not None:
+                minmax = match.group(2)
+                field = match.group(1)
+            else:
+                field = kw
+
+            foundfield = False
+            for tab, tabinfo in fieldspec.items():
+                if ( field in tabinfo['nums'] ) or ( field in tabinfo['text'] ):
+                    foundfield = True
+                    dbfield = field if field not in tabinfo['map'] else tabinfo['map'][field]
+                    abbrev = tabinfo['abbrev']
+                    if ( field in tabinfo['text'] ) and ( minmax is not None ):
+                        raise ValueError( f"_min and _max invalid with field {field}" )
+                    var = f"{abbrev}_{field}{'_min' if minmax=='min' else '_max' if minmax=='max' else ''}"
+                    q += f' {andtxt} {abbrev}.{dbfield}'
+                    q += ">=" if minmax == "min" else "<=" if minmax == "max" else "="
+                    q += f"%({var})s "
+                    subdict[ var ] = val
                     andtxt = 'AND'
-                    continue
+                    break
 
-                minmax = None
-                field = None
-                match = self.minmaxre.search( kw )
-                if match is not None:
-                    minmax = match.group(2)
-                    field = match.group(1)
-                else:
-                    field = kw
+            if not foundfield:
+                raise ValueError( f"Unknown search field {field}" )
 
-                foundfield = False
-                for tab, tabinfo in fieldspec.items():
-                    if ( field in tabinfo['nums'] ) or ( field in tabinfo['text'] ):
-                        foundfield = True
-                        dbfield = field if field not in tabinfo['map'] else tabinfo['map'][field]
-                        abbrev = tabinfo['abbrev']
-                        if ( field in tabinfo['text'] ) and ( minmax is not None ):
-                            raise KeywordParseExcepotion( f"_min and _max invalid with field {field}" )
-                        var = f"{abbrev}_{field}{'_min' if minmax=='min' else '_max' if minmax=='max' else ''}"
-                        q += f' {andtxt} {abbrev}.{dbfield}'
-                        q += ">=" if minmax == "min" else "<=" if minmax == "max" else "="
-                        q += f"%({var})s "
-                        subdict[ var ] = val
-                        andtxt = 'AND'
-                        break
-
-                if not foundfield:
-                    raise KeywordParseException( f"Unknown search field {field}" )
-
-            return q, subdict, fields, containing, ra, dec
-
-        except KeywordParseException as ex:
-            msg = "Failed to parse "
-            if argstr is not None:
-                msg += f"argument string \"{argstr}\" "
-            if ( argstr is not None ) and ( len(flask.request.data) > 0 ):
-                msg += "and "
-            if len(flask.request.data) > 0:
-                msg += f"POST data \"{str(flask.request.data)}\" "
-            msg += f": {str(ex)}"
-            app.logger.error( msg )
-            raise
+        return q, subdict, fields, containing, ra, dec
 
 
 # ======================================================================
