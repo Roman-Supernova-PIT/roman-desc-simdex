@@ -1,0 +1,1 @@
+ALTER TABLE sca RENAME COLUMN scanum TO sca;
