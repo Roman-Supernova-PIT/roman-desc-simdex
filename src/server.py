@@ -322,7 +322,7 @@ class FindTransients(BaseView):
         ( morewheretxt, moresubdict, fields, _, _, _ ) = self.parse_kws_to_sql( data,
                                                                                 transientsearch=True,
                                                                                 allfields=allfields )
-        wheretxt += morewheretxt
+        wheretxt += ( " AND " if len(morewheretxt.strip())>0 else "" ) + morewheretxt
         subdict.update( moresubdict )
 
         q = f"SELECT {fields} FROM transient t WHERE {wheretxt}"
