@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import io
+import pathlib
 import logging
 import traceback
 from contextlib import contextmanager
@@ -11,14 +12,22 @@ import psycopg2
 import flask
 import flask.views
 
+sys.path.insert( 0, str( pathlib.Path(__file__).parent ) )
+from webserver_config import PG_USER, PG_PASSWORD, PG_DB, PG_HOST, PG_PORT
+
 @contextmanager
 def DB():
     try:
-        con = psycopg2.connect( dbname=os.getenv('PG_DB'),
-                                user=os.getenv('PG_USER'),
-                                password=os.getenv('PG_PASSWORD'),
-                                host=os.getenv('PG_HOST'),
-                                port=os.getenv('PG_PORT' ) )
+        app.logger.debug( f"dbname={PG_DB}, "
+                          f"user={PG_USER}, "
+                          f"password={PG_PASSWORD}, "
+                          f"host={PG_HOST}, "
+                          f"port={PG_PORT}" )
+        con = psycopg2.connect( dbname=PG_DB,
+                                user=PG_USER,
+                                password=PG_PASSWORD,
+                                host=PG_HOST,
+                                port=PG_PORT )
         yield con
     finally:
         con.rollback()
