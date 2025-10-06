@@ -343,6 +343,9 @@ class FindTransients(BaseView):
 # ======================================================================
 
 app = flask.Flask( __name__, instance_relative_config=True )
+# Apache requires the application varaible to be named "application"
+application = app
+
 # app.logger.setLevel( logging.INFO )
 app.logger.setLevel( logging.DEBUG )
 
